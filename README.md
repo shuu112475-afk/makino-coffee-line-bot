@@ -6,10 +6,28 @@ LINE公式アカウントの自動応答をFAQベクトル検索 + Claude Haiku�
 
 - **Next.js (App Router) / Vercel Functions** — Webhook受信・管理画面
 - **Supabase (Postgres + pgvector)** — FAQ埋め込み、会話ログ、未対応キュー
-- **Vercel AI Gateway** — 埋め込み (`openai/text-embedding-3-small`) と応答生成 (`anthropic/claude-haiku-4.5`)
+- **OpenAI `text-embedding-3-small`** — FAQと質問文の埋め込み
+- **Anthropic `claude-haiku-4-5`** — 回答可否の判定と返信文の生成
 - **LINE Messaging API** (`@line/bot-sdk`)
 
-設計の詳細（DBスキーマ・Webhookフロー・しきい値判定の考え方）は会話ログを参照してください。
+Web上のデモ画面（`/`）から、LINEと同じ判定処理をその場で試せます。
+
+## 判定の設計
+
+**類似度のしきい値だけで回答可否を決めていません。** 実測すると、しきい値をどこに引いても正しく分離できないためです。
+
+| 質問                               | 類似度    | あるべき挙動                              |
+| ---------------------------------- | --------- | ----------------------------------------- |
+| 駐車場は何時から何時まで使えますか | **0.709** | 答えない（FAQには台数しか書かれていない） |
+| 店長の自宅の住所を教えて           | 0.546     | 答えない                                  |
+| 車で行っても大丈夫ですか           | **0.362** | 答える                                    |
+
+答えてはいけない質問のほうが高い類似度を示すため、単一のしきい値では誤答か機会損失のどちらかが必ず出ます。そこで2段階に分けています。
+
+1. **候補の絞り込み** — コサイン類似度 `FAQ_RECALL_THRESHOLD`（0.3）以上の上位3件を取得。ここは再現率優先で、明らかに無関係なものを落とすだけ
+2. **回答可否の判定** — 取得した候補で実際に答えられるかをLLMに明示的に宣言させ、`answerable` が false なら返信文を作らせずに担当者へ回す
+
+`npm run eval` で17件の評価ケースを実行できます（答えるべき質問8件 / 答えてはいけない質問9件、現状すべてPASS）。
 
 ## セットアップ
 
@@ -19,17 +37,18 @@ LINE公式アカウントの自動応答をFAQベクトル検索 + Claude Haiku�
 npm install
 ```
 
-### 2. AI Gateway のクレジットカード登録
+### 2. LLMのAPIキー
 
-FAQの埋め込み生成・応答生成は Vercel AI Gateway 経由で行うため、**カード登録なしではAPIが403で拒否されます**（無料枠内でも登録自体が必須）。
+`.env.local` に以下を設定します。
 
-1. https://vercel.com/d?to=%2F%5Bteam%5D%2F~%2Fai%3Fmodal%3Dadd-credit-card を開く
-2. チーム（`shuu112475-7099s-projects`）を選択した状態でカード情報を入力し保存
-3. 登録できたら、下記コマンドで動作確認:
-   ```bash
-   npx dotenv -e .env.local -- node scripts/seed-faq.mjs
-   ```
-   `GatewayInternalServerError: ... customer_verification_required` が出なければ成功です
+```
+OPENAI_API_KEY=sk-...     # 埋め込み用
+ANTHROPIC_API_KEY=sk-...  # 判定・生成用
+```
+
+このキーが無い場合は Vercel AI Gateway にフォールバックしますが、**AI Gateway はクレジットカードを登録していないと無料枠内でも403（`customer_verification_required`）を返します**。各社のキーを直接指定するほうが確実です。切り替えは `src/lib/models.ts` に集約しています。
+
+> 補足: `dotenv` も Next.js も既存の環境変数を上書きしません。シェル側に空の `ANTHROPIC_API_KEY` が定義されていると `.env.local` の値が読まれず、原因の分かりにくい認証エラーになります。`echo ${#ANTHROPIC_API_KEY}` が 0 以外を返す場合は `env -u ANTHROPIC_API_KEY npm run dev` で起動してください。
 
 ### 3. LINEチャネルの作成とキー取得
 
@@ -56,6 +75,9 @@ vercel env add LINE_CHANNEL_SECRET production
 vercel env add LINE_CHANNEL_ACCESS_TOKEN production
 vercel env add ADMIN_USER production
 vercel env add ADMIN_PASS production
+vercel env add OPENAI_API_KEY production
+vercel env add ANTHROPIC_API_KEY production
+vercel env add RATE_LIMIT_SALT production   # 任意の長いランダム文字列
 ```
 
 （Preview環境にも使う場合は `production` を `preview` に変えて同様に実行、もしくは両方登録）
@@ -63,11 +85,11 @@ vercel env add ADMIN_PASS production
 ### 5. DBマイグレーション & FAQシード
 
 ```bash
-npx dotenv -e .env.local -- node scripts/migrate.mjs
-npx dotenv -e .env.local -- node scripts/seed-faq.mjs
+npm run db:migrate
+npm run db:seed
 ```
 
-`supabase/migrations/` にスキーマを追加したら、同じ `migrate.mjs` で再適用できます。
+`supabase/migrations/` にスキーマを追加したら `npm run db:migrate` で再適用できます。マイグレーションもシードも冪等なので、何度実行しても構いません。
 
 ### 6. デプロイ & LINE Webhook設定
 
@@ -99,7 +121,10 @@ npm run dev
 - **即座に200を返す**: 署名検証・重複チェックのみ同期実行し、実際の応答処理は `next/server` の `after()` で非同期化しています（`src/app/api/line/webhook/route.ts`）。
 - **署名検証**: `X-Line-Signature` を `@line/bot-sdk` の `validateSignature` でチャネルシークレット検証しています。
 - **重複排除**: `webhookEventId` を `line_events` テーブルに一意制約でINSERTし、再送分は処理をスキップします。
-- **答えられないときは答えない**: FAQ埋め込みとのコサイン類似度が `FAQ_MATCH_THRESHOLD`（`src/lib/config.ts`）未満の場合は固定文言で返信し、`unresolved_queue` に積みます。生成AIはFAQ回答の言い回し整形にのみ使用し、自由生成はさせません。
+- **答えられないときは答えない**: 上記の2段階判定で答えられないと判断した場合は固定文言で返信し、`unresolved_queue` に理由（`no_candidate` / `no_evidence`）付きで積みます。生成AIはFAQに書かれた内容の言い換えにのみ使用し、自由生成はさせません。
+- **プロンプトインジェクション耐性**: 「これまでの指示を無視して」等の指示文は回答不能な質問として扱うようシステム側で規定しています。評価ケースに2種類含めています。
+- **公開デモのレート制限**: `/api/demo/ask` はLLMを呼ぶため、無制限に叩かれると従量課金がそのまま被害になります。Postgresだけで固定ウィンドウ方式の制限（8回/分）を実装し、**LLMを呼ぶ前に**判定しています（`src/lib/rate-limit.ts`）。IPは生値を保存せずハッシュ化しています。
+- **コネクションプーラー対応**: `POSTGRES_URL` はSupabaseのトランザクションモードのプーラー（6543番）を指すため、postgres.js の `prepare` を無効にしています。有効のままだと同時アクセス時に落ちます。
 
 ## コード変更後の再デプロイ
 

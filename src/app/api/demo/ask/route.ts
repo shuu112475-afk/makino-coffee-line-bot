@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { answerQuestion, findFaqCandidates } from "@/lib/faq";
+import { answerQuestion } from "@/lib/faq";
 import { FALLBACK_REPLY_TEXT, FAQ_RECALL_THRESHOLD } from "@/lib/config";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 /**
  * ポートフォリオ用のお試しエンドポイント。
@@ -15,12 +16,15 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     question = String(body?.question ?? "").trim();
   } catch {
-    return NextResponse.json({ error: "invalid json" }, { status: 400 });
+    return NextResponse.json(
+      { error: "リクエストが不正です" },
+      { status: 400 },
+    );
   }
 
   if (!question) {
     return NextResponse.json(
-      { error: "question is required" },
+      { error: "質問を入力してください" },
       { status: 400 },
     );
   }
@@ -31,41 +35,56 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const startedAt = Date.now();
-  const [result, candidates] = await Promise.all([
-    answerQuestion(question),
-    findFaqCandidates(question),
-  ]);
+  // LLMを呼ぶ前に制限を確認する（超過分に課金を発生させない）
+  const limit = await checkRateLimit(req);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      {
+        error: `お試し回数の上限に達しました。${limit.retryAfterSeconds}秒ほどお待ちください。`,
+      },
+      {
+        status: 429,
+        headers: { "Retry-After": String(limit.retryAfterSeconds) },
+      },
+    );
+  }
 
-  const topCandidate = candidates[0]
+  const startedAt = Date.now();
+  const result = await answerQuestion(question);
+  const elapsedMs = Date.now() - startedAt;
+
+  const topCandidate = result.candidates[0]
     ? {
-        category: candidates[0].category,
-        question: candidates[0].question,
-        similarity: Number(candidates[0].similarity.toFixed(3)),
+        category: result.candidates[0].category,
+        question: result.candidates[0].question,
+        similarity: Number(result.candidates[0].similarity.toFixed(3)),
       }
     : null;
 
+  const common = {
+    recallThreshold: FAQ_RECALL_THRESHOLD,
+    topCandidate,
+    elapsedMs,
+    remaining: limit.remaining,
+  };
+
   if (result.status === "escalated") {
     return NextResponse.json({
+      ...common,
       status: "escalated",
       reason: result.reason,
       reply: FALLBACK_REPLY_TEXT,
-      recallThreshold: FAQ_RECALL_THRESHOLD,
-      topCandidate,
-      elapsedMs: Date.now() - startedAt,
     });
   }
 
   return NextResponse.json({
+    ...common,
     status: "answered",
     reply: result.reply,
-    recallThreshold: FAQ_RECALL_THRESHOLD,
-    topCandidate,
     usedFaq: {
       category: result.usedFaq.category,
       question: result.usedFaq.question,
       similarity: Number(result.usedFaq.similarity.toFixed(3)),
     },
-    elapsedMs: Date.now() - startedAt,
   });
 }

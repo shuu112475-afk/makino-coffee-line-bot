@@ -84,16 +84,35 @@ const cases = [
   },
 ];
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * デモAPIには公開用のレート制限が掛かっている。
+ * 評価は正当な利用なので、429を失敗とせずウィンドウが空くまで待って再試行する。
+ * （制限を回避する抜け道をAPI側に作ると、それ自体が攻撃面になるため）
+ */
 async function ask(question) {
-  const res = await fetch(`${BASE_URL}/api/demo/ask`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
-  });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const res = await fetch(`${BASE_URL}/api/demo/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+
+    if (res.status === 429) {
+      const wait = (Number(res.headers.get("Retry-After")) || 10) + 1;
+      process.stdout.write(`（レート制限のため${wait}秒待機）\n`);
+      await sleep(wait * 1000);
+      continue;
+    }
+    if (!res.ok) {
+      throw new Error(
+        `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`,
+      );
+    }
+    return res.json();
   }
-  return res.json();
+  throw new Error("レート制限が解除されませんでした");
 }
 
 const results = [];

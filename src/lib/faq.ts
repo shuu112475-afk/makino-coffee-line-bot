@@ -13,9 +13,10 @@ export type FaqMatch = {
   similarity: number;
 };
 
-export type AnswerResult =
+export type AnswerResult = { candidates: FaqMatch[] } & (
   | { status: "answered"; reply: string; usedFaq: FaqMatch }
-  | { status: "escalated"; reason: "no_candidate" | "no_evidence" };
+  | { status: "escalated"; reason: "no_candidate" | "no_evidence" }
+);
 
 /**
  * 1段目: ベクトル検索で候補FAQを上位K件取得する。
@@ -70,7 +71,7 @@ export async function answerQuestion(
 ): Promise<AnswerResult> {
   const candidates = await findFaqCandidates(userQuestion);
   if (candidates.length === 0) {
-    return { status: "escalated", reason: "no_candidate" };
+    return { status: "escalated", reason: "no_candidate", candidates };
   }
 
   const faqList = candidates
@@ -100,8 +101,13 @@ export async function answerQuestion(
 
   const used = candidates[object.faqIndex];
   if (!object.answerable || !used || !object.reply.trim()) {
-    return { status: "escalated", reason: "no_evidence" };
+    return { status: "escalated", reason: "no_evidence", candidates };
   }
 
-  return { status: "answered", reply: object.reply.trim(), usedFaq: used };
+  return {
+    status: "answered",
+    reply: object.reply.trim(),
+    usedFaq: used,
+    candidates,
+  };
 }
