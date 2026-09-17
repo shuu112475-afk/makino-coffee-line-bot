@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 type AskResponse = {
   status: "answered" | "escalated";
-  reason?: "no_candidate" | "no_evidence";
+  reason?: "no_candidate" | "no_evidence" | "error";
   reply: string;
   recallThreshold: number;
   topCandidate: {
@@ -43,6 +43,7 @@ const SAMPLES = {
 const REASON_LABEL: Record<string, string> = {
   no_candidate: "関連するFAQが見つからなかった",
   no_evidence: "FAQはあるが、その質問には答えられない内容だった",
+  error: "一時的な障害で判定できなかった（この場合も答えずに人へ回す）",
 };
 
 export default function Home() {

@@ -13,9 +13,17 @@ export type FaqMatch = {
   similarity: number;
 };
 
+export type EscalationReason =
+  /** ベクトル検索で候補FAQが1件も閾値を超えなかった（＝守備範囲外の質問） */
+  | "no_candidate"
+  /** 候補は取れたが、その内容では答えられないとLLMが判断した */
+  | "no_evidence"
+  /** 埋め込み・LLM・DBのいずれかが落ちた（＝判定そのものができなかった） */
+  | "error";
+
 export type AnswerResult = { candidates: FaqMatch[] } & (
   | { status: "answered"; reply: string; usedFaq: FaqMatch }
-  | { status: "escalated"; reason: "no_candidate" | "no_evidence" }
+  | { status: "escalated"; reason: EscalationReason }
 );
 
 /**
@@ -69,6 +77,21 @@ const decisionSchema = z.object({
 export async function answerQuestion(
   userQuestion: string,
 ): Promise<AnswerResult> {
+  try {
+    return await decide(userQuestion);
+  } catch (error) {
+    // 埋め込み・LLM・DBのいずれかが落ちた場合。
+    //
+    // ここで例外を投げ直すと、LINE側では after() の中で失敗するため
+    // 返信もされず未対応キューにも積まれず、お客様の質問が黙って消える。
+    // 「答えられないときは答えずに人へ回す」のがこのBotの前提なので、
+    // 判定できなかった場合も同じ扱いにして必ず担当者に届くようにする。
+    console.error("[answerQuestion] 判定に失敗しました:", error);
+    return { status: "escalated", reason: "error", candidates: [] };
+  }
+}
+
+async function decide(userQuestion: string): Promise<AnswerResult> {
   const candidates = await findFaqCandidates(userQuestion);
   if (candidates.length === 0) {
     return { status: "escalated", reason: "no_candidate", candidates };
