@@ -245,10 +245,28 @@ export default function Home() {
           </p>
         </section>
 
-        <footer className="mt-10 text-xs leading-5 text-[#6B6B6B]">
-          架空の店舗を題材にしたデモです。回答内容はすべてサンプルで、実在の店舗とは関係ありません。
-          <br />
-          入力内容はこのデモの応答生成にのみ使用し、保存していません。
+        <footer className="mt-10 border-t border-[#E5E3DF] pt-6 text-xs leading-5 text-[#6B6B6B]">
+          <p>
+            <span className="font-medium text-[#2E2E2E]">構成</span>
+            {" — "}
+            Next.js (App Router) / Vercel / Supabase (pgvector) / OpenAI
+            text-embedding-3-small / Claude Haiku 4.5 / LINE Messaging API
+          </p>
+          <p className="mt-2">
+            <a
+              href="https://github.com/shuu112475-afk/makino-coffee-line-bot"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-[#3A7D6E] underline underline-offset-2 hover:opacity-70"
+            >
+              ソースコードと設計の解説（GitHub）
+            </a>
+          </p>
+          <p className="mt-4">
+            架空の店舗を題材にしたデモです。回答内容はすべてサンプルで、実在の店舗とは関係ありません。
+            <br />
+            入力内容はこのデモの応答生成にのみ使用し、保存していません。
+          </p>
         </footer>
       </div>
     </div>
