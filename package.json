@@ -6,18 +6,28 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:migrate": "dotenv -e .env.local -- node scripts/migrate.mjs",
+    "db:seed": "dotenv -e .env.local -- node scripts/seed-faq.mjs",
+    "eval": "node scripts/eval-answers.mjs"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.56",
+    "@ai-sdk/openai": "^4.0.69",
+    "@line/bot-sdk": "^11.2.0",
+    "ai": "^7.0.105",
     "next": "16.3.5",
+    "postgres": "^3.4.9",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv-cli": "^11.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
     "tailwindcss": "^4",
