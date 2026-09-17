@@ -9,7 +9,9 @@
     "lint": "eslint",
     "db:migrate": "dotenv -e .env.local -- node scripts/migrate.mjs",
     "db:seed": "dotenv -e .env.local -- node scripts/seed-faq.mjs",
-    "eval": "node scripts/eval-answers.mjs"
+    "eval": "node scripts/eval-answers.mjs",
+    "logs": "dotenv -e .env.local -- node scripts/inspect-logs.mjs",
+    "buckets": "dotenv -e .env.local -- node scripts/check-buckets.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.56",
