@@ -16,6 +16,14 @@ export const FAQ_TOP_K = 3;
 export const FALLBACK_REPLY_TEXT =
   "確認して担当者からご連絡いたします。少々お待ちください。";
 
+// レート制限に掛かったときの返信。
+// 「答えられないので人に回す」場合と混同されないよう、別の文言にしている。
+export const RATE_LIMITED_REPLY_TEXT =
+  "申し訳ありません。短時間に多くのご質問をいただいたため、少し時間をおいてからお送りください。";
+
+export const DAILY_LIMIT_REPLY_TEXT =
+  "申し訳ありません。本日のデモ利用上限に達しました。恐れ入りますが、明日以降にお試しください。";
+
 // direct: 各社 API を直接叩くときのモデルID
 // gateway: Vercel AI Gateway 経由で呼ぶときのモデルID
 // どちらを使うかは src/lib/models.ts が環境変数を見て決める

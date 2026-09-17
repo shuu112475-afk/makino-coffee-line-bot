@@ -3,7 +3,12 @@ import { after } from "next/server";
 import { messagingApi, validateSignature, webhook } from "@line/bot-sdk";
 import { getDb } from "@/lib/db";
 import { answerQuestion } from "@/lib/faq";
-import { FALLBACK_REPLY_TEXT } from "@/lib/config";
+import {
+  DAILY_LIMIT_REPLY_TEXT,
+  FALLBACK_REPLY_TEXT,
+  RATE_LIMITED_REPLY_TEXT,
+} from "@/lib/config";
+import { checkLineGate } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
   const bodyText = await req.text();
@@ -55,6 +60,28 @@ async function handleEvent(event: webhook.Event) {
     insert into messages (conversation_id, role, content)
     values (${conversationId}, 'user', ${question})
   `;
+
+  // LLMを呼ぶ前に制限を確認する（超過分に課金を発生させない）。
+  // 未対応キューには積まない。答えられなかったのではなく、
+  // そもそも判定していないため、担当者に見せても対応のしようがない。
+  const gate = await checkLineGate(userId);
+  if (!gate.allowed) {
+    const text =
+      gate.reason === "daily_budget"
+        ? DAILY_LIMIT_REPLY_TEXT
+        : RATE_LIMITED_REPLY_TEXT;
+    if (replyToken) {
+      await client.replyMessage({
+        replyToken,
+        messages: [{ type: "text", text }],
+      });
+    }
+    await sql`
+      insert into messages (conversation_id, role, content)
+      values (${conversationId}, 'bot', ${text})
+    `;
+    return;
+  }
 
   const result = await answerQuestion(question);
 

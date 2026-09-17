@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { answerQuestion } from "@/lib/faq";
 import { FALLBACK_REPLY_TEXT, FAQ_RECALL_THRESHOLD } from "@/lib/config";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkWebGate } from "@/lib/rate-limit";
 
 /**
  * ポートフォリオ用のお試しエンドポイント。
@@ -36,12 +36,14 @@ export async function POST(req: NextRequest) {
   }
 
   // LLMを呼ぶ前に制限を確認する（超過分に課金を発生させない）
-  const limit = await checkRateLimit(req);
+  const limit = await checkWebGate(req);
   if (!limit.allowed) {
+    const error =
+      limit.reason === "daily_budget"
+        ? "本日のデモ利用上限に達しました。恐れ入りますが、明日以降にお試しください。"
+        : `お試し回数の上限に達しました。${limit.retryAfterSeconds}秒ほどお待ちください。`;
     return NextResponse.json(
-      {
-        error: `お試し回数の上限に達しました。${limit.retryAfterSeconds}秒ほどお待ちください。`,
-      },
+      { error },
       {
         status: 429,
         headers: { "Retry-After": String(limit.retryAfterSeconds) },
