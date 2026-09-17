@@ -109,9 +109,16 @@ async function handleEvent(event: webhook.Event) {
     insert into messages (conversation_id, role, content)
     values (${conversationId}, 'bot', ${FALLBACK_REPLY_TEXT})
   `;
+  // 判定時に最も近かったFAQを残す。担当者が回答を書くときの手がかりになり、
+  // FAQに追記すべきか新規作成すべきかの判断もこれで付く。
+  const top = result.candidates[0] ?? null;
   await sql`
-    insert into unresolved_queue (line_user_id, question, reason)
-    values (${userId}, ${question}, ${result.reason})
+    insert into unresolved_queue
+      (line_user_id, question, reason, top_faq_id, top_similarity)
+    values (
+      ${userId}, ${question}, ${result.reason},
+      ${top?.id ?? null}, ${top?.similarity ?? null}
+    )
   `;
 }
 
